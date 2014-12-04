@@ -1,5 +1,7 @@
 # riemann-mysql
 
+[![Build Status](https://travis-ci.org/simao/riemann-mysql.png?branch=master)](https://travis-ci.org/simao/riemann-mysql) 
+
 Periodically checks mysql for metrics and forwards them to riemann
 
 ## Installation
