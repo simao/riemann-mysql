@@ -24,7 +24,7 @@
 
 (deftest check-slave-error-status-test
   (testing "returns an event representing an error if an error occurs"
-    (let [result (check-slave-status nil)]
+    (let [result (check-slave-status nil 10)]
       (is (nil? (:metric result)))
       (is (= "critical" (:state result)))
       (is (re-find #"db-spec null is missing" (:description result)))
@@ -32,27 +32,27 @@
 
 (deftest check-slave-success-status-test
   (testing "returns an event representing the current slave delay"
-    (let [result (check-slave-status nil
+    (let [result (check-slave-status nil 10
                   (fn [] [{:seconds_behind_master 0 :slave_sql_running_state "updating"}]))]
       (is (re-find #"running_state: " (:description result)))
       (is (= "ok" (:state result))))))
 
 (deftest check-slave-success-includes-duration-test
     (testing "returns an event representing the current slave delay"
-    (let [result (check-slave-status nil
+    (let [result (check-slave-status nil 10
                   (fn [] [{:seconds_behind_master 60 :slave_sql_running_state "updating"}]))]
       (is (re-find #"1 minute" (:description result)))
       (is (= "ok" (:state result))))))
 
 (deftest check-conn-count-error-test
   (testing "returns an error event if an error occurs"
-    (let [result (check-conn-count nil)]
+    (let [result (check-conn-count nil 10)]
       (is (nil? (:metric result)))
       (is (= "critical" (:state result))))))
 
 (deftest check-conn-count-success-test
   (testing "returns a success event if an error occurs"
-    (let [result (check-conn-count nil #(vec [{} {} {}]))]
+    (let [result (check-conn-count nil 10 #(vec [{} {} {}]))]
       (is (= "ok" (:state result)))
       (is (= 3 (:metric result))))))
 

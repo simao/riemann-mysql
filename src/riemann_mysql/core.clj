@@ -45,9 +45,9 @@
 
 (defn check-slave-status
   "Returns an event representing the current mysql slave status"
-  ([db-con] (check-slave-status db-con
+  ([db-con ttl] (check-slave-status db-con ttl
                                 #(j/query db-con "show slave status /* riemann-mysql */")))
-  ([db-con query-fn]
+  ([db-con ttl query-fn]
   (let [a {:service "mysql_slave_delay" :ttl 10 :description nil :metric nil}]
     (try-alert-build a
                (let [result (first (query-fn))
@@ -59,17 +59,16 @@
                      ]
                  (assoc a :metric seconds
                         :state (cond (nil? seconds) "warning" :else (delay-state seconds))
-                        :description (str running_state delay-str)))))))
+                        :description (string/join ", " [running_state delay-str])))))))
 
 (defn check-conn-count
-  ([db-con] (check-conn-count db-con
+  ([db-con ttl] (check-conn-count db-con ttl
                               #(j/query db-con "show processlist; /* riemann-mysql */")))
-  ([db-con query-fn]
+  ([db-con ttl query-fn]
   "Get current connection status from db and return an event hash
   representing the current state"
-  (let [a {:service "mysql_conn_count" :ttl 10 :description nil :metric nil}]
+  (let [a {:service "mysql_conn_count" :ttl ttl :description nil :metric nil}]
     (try-alert-build a (assoc a :metric (count (query-fn)) :state "ok")))))
-
 
 (defn -check-loop [db-opts interval riemann-host]
   (let [mysql-props {:subprotocol "mysql"
@@ -81,7 +80,7 @@
       (loop []
         (try
           (doseq [f [check-conn-count check-slave-status]]
-            (log/info (send-riemann-alert rclient (f db-con))))
+            (log/info (send-riemann-alert rclient (f db-con (* 2 interval)))))
           (catch Throwable ex (log/error ex "Error: ")))
         (Thread/sleep (* interval 1000))
       (recur)))))
