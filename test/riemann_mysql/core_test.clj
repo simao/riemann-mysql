@@ -24,37 +24,42 @@
 
 (deftest check-slave-error-status-test
   (testing "returns an event representing an error if an error occurs"
-    (let [result (check-slave-status nil 10)]
+    (let [result (check-slave-status 10 (fn [_] (/ 1 0)))]
       (is (nil? (:metric result)))
       (is (= "critical" (:state result)))
-      (is (re-find #"db-spec null is missing" (:description result)))
+      (is (re-find #"Divide by zero" (:description result)))
       (is (re-find #"ERROR:" (:description result))))))
 
 (deftest check-slave-success-status-test
   (testing "returns an event representing the current slave delay"
-    (let [result (check-slave-status nil 10
-                  (fn [] [{:seconds_behind_master 0 :slave_sql_running_state "updating"}]))]
+    (let [result (check-slave-status 10
+                  (fn [_] [{:seconds_behind_master 0 :slave_sql_running_state "updating"}]))]
       (is (re-find #"running_state: " (:description result)))
       (is (= "ok" (:state result))))))
 
 (deftest check-slave-success-includes-duration-test
     (testing "returns an event representing the current slave delay"
-    (let [result (check-slave-status nil 10
-                  (fn [] [{:seconds_behind_master 60 :slave_sql_running_state "updating"}]))]
+    (let [result (check-slave-status 10
+                  (fn [_] [{:seconds_behind_master 60 :slave_sql_running_state "updating"}]))]
       (is (re-find #"1 minute" (:description result)))
       (is (= "ok" (:state result))))))
 
 (deftest check-conn-count-error-test
   (testing "returns an error event if an error occurs"
-    (let [result (check-conn-count nil 10)]
+    (let [result (check-conn-count 10 nil)]
       (is (nil? (:metric result)))
       (is (= "critical" (:state result))))))
 
 (deftest check-conn-count-success-test
   (testing "returns a success event if an error occurs"
-    (let [result (check-conn-count nil 10 #(vec [{} {} {}]))]
+    (let [result (check-conn-count 10 (fn [_] (vec [{} {} {}])))]
       (is (= "ok" (:state result)))
       (is (= 3 (:metric result))))))
+
+(deftest check-conn-count-success-ttl-test
+  (testing "ttl should be passed on in the generated event "
+    (let [result (check-conn-count 22 (fn [_] (vec [{} {} {}])))]
+      (is (= 22 (:ttl result))))))
 
 (deftest default-cli-arguments
   (testing "uses default command line arguments"
@@ -65,7 +70,7 @@
 
 (deftest accepts-cli-arguments
   (testing "accepts known arguments in cli"
-    (let [result (parse-opts ["-m" "riemann.com" "-i" "30"] cli-options)
+    (let [result (parse-opts ["-m" "localhost" "-i" "30"] cli-options)
           options (:options result)]
       (is (= 30 (:interval options)))
-      (is (= "riemann.com" (:mysql-host options))))))
+      (is (= "localhost/127.0.0.1" (str (:mysql-host options)))))))

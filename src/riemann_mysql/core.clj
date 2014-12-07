@@ -4,8 +4,8 @@
             [riemann.client :as riemann]
             [clojure.tools.logging :as log]
             [clojure.tools.cli :refer [parse-opts]])
+  (:import (java.net InetAddress))
   (:gen-class))
-
 
 (defn seconds-to-duration-str [seconds]
   (if (or (nil? seconds) (= 0 seconds))
@@ -45,12 +45,11 @@
 
 (defn check-slave-status
   "Returns an event representing the current mysql slave status"
-  ([db-con ttl] (check-slave-status db-con ttl
-                                #(j/query db-con "show slave status /* riemann-mysql */")))
-  ([db-con ttl query-fn]
-  (let [a {:service "mysql_slave_delay" :ttl 10 :description nil :metric nil}]
+  ([ttl query-fn]
+   (let [iquery-fn #(query-fn "show slave status /* riemann-mysql */")
+         a {:service "mysql_slave_delay" :ttl ttl :description nil :metric nil}]
     (try-alert-build a
-               (let [result (first (query-fn))
+               (let [result (first (iquery-fn))
                      seconds (:seconds_behind_master result)
                      state (:slave_sql_running_state result)
                      delay-str (if (nil? seconds) ""
@@ -61,16 +60,13 @@
                         :state (cond (nil? seconds) "warning" :else (delay-state seconds))
                         :description (string/join ", " [running_state delay-str])))))))
 
-
-;; TODO: If we use a query-fn, why do we need a db-con???
 (defn check-conn-count
-  ([db-con ttl] (check-conn-count db-con ttl
-                              #(j/query db-con "show processlist; /* riemann-mysql */")))
-  ([db-con ttl query-fn]
+  [ttl query-fn]
   "Get current connection status from db and return an event hash
   representing the current state"
-  (let [a {:service "mysql_conn_count" :ttl ttl :description nil :metric nil}]
-    (try-alert-build a (assoc a :metric (count (query-fn)) :state "ok")))))
+  (let [iquery-fn #(query-fn "show processlist; /* riemann-mysql */")
+        a {:service "mysql_conn_count" :ttl ttl :description nil :metric nil}]
+    (try-alert-build a (assoc a :metric (count (iquery-fn)) :state "ok"))))
 
 (defn -check-loop [db-opts interval riemann-host]
   (let [mysql-props {:subprotocol "mysql"
@@ -79,18 +75,21 @@
                      :password ""}
         rclient (riemann/tcp-client {:host riemann-host})]
     (j/with-db-connection [db-con mysql-props]
-      (loop []
-        (try
-          (doseq [f [check-conn-count check-slave-status]]
-            (log/info (send-riemann-alert rclient (f db-con (* 2 interval)))))
-          (catch Throwable ex (log/error ex "Error: ")))
-        (Thread/sleep (* interval 1000))
-      (recur)))))
+      (let [query-fn #(j/query db-con %1)
+            ttl (* 2 interval)]
+        (loop []
+          (try
+            (doseq [f [check-conn-count check-slave-status]]
+              (log/info
+               (send-riemann-alert rclient (f ttl query-fn))))
+            (catch Throwable ex (log/error ex "Error: ")))
+          (Thread/sleep (* interval 1000))
+          (recur))))))
 
 (def cli-options
   [["-m" "--mysql-host HOST" "mysql hostname to check"
-     :default "127.0.0.1"
-     ]
+    :default "127.0.0.1"
+    :parse-fn #(InetAddress/getByName %)]
 
    [nil "--mysql-user USER" "mysql username to use"
     :default "root"
