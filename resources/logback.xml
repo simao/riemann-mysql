@@ -2,13 +2,31 @@
 
 <configuration>
 
-    <appender name="stdout" class="ch.qos.logback.core.ConsoleAppender">
-        <encoder>
-            <pattern>%highlight(%.-1level)|%d{HH:mm:ss,SSS}|%message%n%exception</pattern>
-        </encoder>
-    </appender>
+  <appender name="stdout" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>%highlight(%.-1level)|%d{HH:mm:ss,SSS}|%message%n%exception</pattern>
+    </encoder>
+  </appender>
 
-    <root level="INFO">
-        <appender-ref ref="stdout"/>
-    </root>
+  <appender name="file" class="ch.qos.logback.core.rolling.RollingFileAppender">
+    <file>log/riemann-mysql.log</file>
+    <encoder>
+      <pattern>%.-1level|%date{ISO8601}|%message%n%exception</pattern>
+    </encoder>
+
+    <rollingPolicy class="ch.qos.logback.core.rolling.FixedWindowRollingPolicy">
+      <fileNamePattern>log/riemann-mysql.%i.log.gz</fileNamePattern>
+      <minIndex>1</minIndex>
+      <maxIndex>3</maxIndex>
+    </rollingPolicy>
+
+    <triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
+      <maxFileSize>1024MB</maxFileSize>
+    </triggeringPolicy>
+  </appender>
+
+  <root level="INFO">
+    <appender-ref ref="stdout"/>
+    <appender-ref ref="file"/>
+  </root>
 </configuration>

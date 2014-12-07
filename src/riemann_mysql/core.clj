@@ -23,7 +23,7 @@
     (->> [["day" d] ["hour" h] ["minute" m] ["second" s]]
          (drop-while (comp zero? last))
          (map (fn [[w v]] (str v " " w (if (= v 1) "" "s"))))
-         (clojure.string/join ", ")))))
+         (string/join ", ")))))
 
 (defn send-riemann-alert [client event]
   "Receives an `event' hash and sends it to riemann using `client'"
@@ -61,6 +61,8 @@
                         :state (cond (nil? seconds) "warning" :else (delay-state seconds))
                         :description (string/join ", " [running_state delay-str])))))))
 
+
+;; TODO: If we use a query-fn, why do we need a db-con???
 (defn check-conn-count
   ([db-con ttl] (check-conn-count db-con ttl
                               #(j/query db-con "show processlist; /* riemann-mysql */")))
