@@ -15,12 +15,14 @@
       (is (= {:tags ["my tag" "riemann-mysql"] :metric 2}
              (send-riemann-alert 0 {:metric 2 :tags ["my tag"]}))))))
 
-(deftest delay-state-test
-  (testing "state depends on size of delay"
-    (is (= (delay-state 0) "ok"))
-    (is (= (delay-state 50) "ok"))
-    (is (= (delay-state 1201) "warning"))
-    (is (= (delay-state 3601) "critical"))))
+(deftest transform-state-for-threshold-test
+  (testing "status depends on size of delay"
+    (is (= (:state (transform-state-for-threshold {:metric 0})) "ok"))
+    (is (= (:state (transform-state-for-threshold {:metric 50})) "ok"))
+    (is (= (:state (transform-state-for-threshold {:metric 1201})) "warning"))
+    (is (= (:state (transform-state-for-threshold {:metric nil})) "warning"))
+    (is (= (:state (transform-state-for-threshold {:state "ok" :metric nil})) "ok"))
+    (is (= (:state (transform-state-for-threshold {:metric 3601})) "critical"))))
 
 (deftest check-slave-error-status-test
   (testing "returns an event representing an error if an error occurs"
@@ -35,6 +37,7 @@
     (let [result (check-slave-status 10
                   (fn [_] [{:seconds_behind_master 0 :slave_sql_running_state "updating"}]))]
       (is (re-find #"running_state: " (:description result)))
+      (is (= 0 (:metric result)))
       (is (= "ok" (:state result))))))
 
 (deftest check-slave-success-includes-duration-test
@@ -48,6 +51,11 @@
   (testing "returns an error event if an error occurs"
     (let [result (check-conn-count 10 nil)]
       (is (nil? (:metric result)))
+      (is (= "critical" (:state result))))))
+
+(deftest check-conn-count-state-threshold-test
+  (testing "adjusts state when connection count is too high"
+    (let [result (check-conn-count 10 (fn [_] (range 5000)))]
       (is (= "critical" (:state result))))))
 
 (deftest check-conn-count-success-test

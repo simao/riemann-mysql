@@ -30,12 +30,6 @@
   (let [e (update-in event [:tags] (fnil conj []) "riemann-mysql")]
   (riemann/send-event client e) e))
 
-(defn delay-state [seconds]
-  (condp < seconds
-    3600 "critical"
-    1200 "warning"
-    "ok"))
-
 (defmacro try-alert-build [defaults exp]
   `(try
      ~exp
@@ -43,9 +37,20 @@
        (assoc ~defaults :state "critical" 
               :description (str "ERROR: " (.getMessage e#))))))
 
+;; TODO:
+;; threshold and ttl can be abstracted to some form of event building
+
+(defn transform-state-for-threshold
+  [event & { :keys [critical warning] :or {critical 3600 warning 1200} }]
+  (if (nil? (:metric event)) (assoc event :state (or (:state event) "warning"))
+      (assoc event :state (condp < (:metric event)
+                             critical "critical"
+                             warning "warning"
+                             "ok"))))
+
 (defn check-slave-status
   "Returns an event representing the current mysql slave status"
-  ([ttl query-fn]
+  ([ttl query-fn & { :keys [critical warning] :or {critical 3600 warning 1200} }]
    (let [iquery-fn #(query-fn "show slave status /* riemann-mysql */")
          a {:service "mysql_slave_delay" :ttl ttl :description nil :metric nil}]
     (try-alert-build a
@@ -56,17 +61,20 @@
                                    (str "delay: " (seconds-to-duration-str seconds)))
                      running_state (when (not (nil? state)) (str "running_state: " state))
                      ]
-                 (assoc a :metric seconds
-                        :state (cond (nil? seconds) "warning" :else (delay-state seconds))
-                        :description (string/join ", " [running_state delay-str])))))))
+                 (transform-state-for-threshold
+                  (assoc a :metric seconds
+                         :description (string/join ", " [running_state delay-str]))
+                  :critical critical :warning warning))))))
 
 (defn check-conn-count
-  [ttl query-fn]
+  [ttl query-fn & { :keys [critical warning] :or {critical 1000 warning 900} }]
   "Get current connection status from db and return an event hash
   representing the current state"
   (let [iquery-fn #(query-fn "show processlist; /* riemann-mysql */")
         a {:service "mysql_conn_count" :ttl ttl :description nil :metric nil}]
-    (try-alert-build a (assoc a :metric (count (iquery-fn)) :state "ok"))))
+    (transform-state-for-threshold
+     (try-alert-build a (assoc a :metric (count (iquery-fn)) :state "ok"))
+     :critical critical :warning warning)))
 
 (defn -check-loop [db-opts interval riemann-host]
   (let [mysql-props {:subprotocol "mysql"
@@ -75,16 +83,15 @@
                      :password ""}
         rclient (riemann/tcp-client {:host riemann-host})]
     (j/with-db-connection [db-con mysql-props]
-      (let [query-fn #(j/query db-con %1)
+      (loop [query-fn #(j/query db-con %1)
             ttl (* 2 interval)]
-        (loop []
           (try
-            (doseq [f [check-conn-count check-slave-status]]
+            (doseq [check-fn [check-conn-count check-slave-status]]
               (log/info
-               (send-riemann-alert rclient (f ttl query-fn))))
+               (send-riemann-alert rclient (check-fn ttl query-fn))))
             (catch Throwable ex (log/error ex "Error: ")))
           (Thread/sleep (* interval 1000))
-          (recur))))))
+          (recur query-fn ttl)))))
 
 (def cli-options
   [["-m" "--mysql-host HOST" "mysql hostname to check"
@@ -92,17 +99,14 @@
     :parse-fn #(InetAddress/getByName %)]
 
    [nil "--mysql-user USER" "mysql username to use"
-    :default "root"
-    ]
+    :default "root"]
 
    ["-i" "--interval INTERVAL" "interval to pause between checks (seconds)"
     :default 5
-    :parse-fn #(Integer/parseInt %)
-    ]
+    :parse-fn #(Integer/parseInt %)]
 
    ["-r" "--riemann-host HOST" "address for a riemanns server"
-    :default "localhost"
-    ]
+    :default "localhost"]
 
    ["-h" "--help"]])
 
