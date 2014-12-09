@@ -40,6 +40,11 @@
       (is (= 0 (:metric result)))
       (is (= "ok" (:state result))))))
 
+(deftest check-slave-status-custom-threshold-test
+  (testing "returns an event representing the current slave delay"
+    (let [result (check-slave-status 10 (fn [_] [{:seconds_behind_master 100 :slave_sql_running_state "updating"}]) {:critical 10})]
+      (is (= "critical" (:state result))))))
+
 (deftest check-slave-success-includes-duration-test
     (testing "returns an event representing the current slave delay"
     (let [result (check-slave-status 10

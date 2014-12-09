@@ -50,7 +50,7 @@
 
 (defn check-slave-status
   "Returns an event representing the current mysql slave status"
-  ([ttl query-fn & { :keys [critical warning] :or {critical 3600 warning 1200} }]
+  ([ttl query-fn & [{ :keys [critical warning] :or {critical 3600 warning 1200} }]]
    (let [iquery-fn #(query-fn "show slave status /* riemann-mysql */")
          a {:service "mysql_slave_delay" :ttl ttl :description nil :metric nil}]
     (try-alert-build a
@@ -67,7 +67,7 @@
                   :critical critical :warning warning))))))
 
 (defn check-conn-count
-  [ttl query-fn & { :keys [critical warning] :or {critical 1000 warning 900} }]
+  [ttl query-fn & [{ :keys [critical warning] :or {critical 1000 warning 900} }]]
   "Get current connection status from db and return an event hash
   representing the current state"
   (let [iquery-fn #(query-fn "show processlist; /* riemann-mysql */")
@@ -76,7 +76,10 @@
      (try-alert-build a (assoc a :metric (count (iquery-fn)) :state "ok"))
      :critical critical :warning warning)))
 
-(defn -check-loop [db-opts interval riemann-host]
+;; TODO: Maybe this function could just accept `db-opts', a `interval'
+;; riemann-host, and a list of already built functions that don't even
+;; receive any arguments but build event hashes that can be sent to riemann
+(defn -check-loop [db-opts interval riemann-host slave-thresholds]
   (let [mysql-props {:subprotocol "mysql"
                      :subname (str "//" (:host db-opts) ":3306/mysql")
                      :user (:user db-opts)
@@ -85,11 +88,12 @@
     (j/with-db-connection [db-con mysql-props]
       (loop [query-fn #(j/query db-con %1)
             ttl (* 2 interval)]
-          (try
-            (doseq [check-fn [check-conn-count check-slave-status]]
-              (log/info
-               (send-riemann-alert rclient (check-fn ttl query-fn))))
-            (catch Throwable ex (log/error ex "Error: ")))
+        (try
+          (log/info (send-riemann-alert rclient
+                                        (check-slave-status ttl query-fn slave-thresholds)))
+          (log/info (send-riemann-alert rclient
+                                        (check-conn-count ttl query-fn)))
+          (catch Throwable ex (log/error ex "Error: ")))
           (Thread/sleep (* interval 1000))
           (recur query-fn ttl)))))
 
@@ -103,6 +107,14 @@
 
    ["-i" "--interval INTERVAL" "interval to pause between checks (seconds)"
     :default 5
+    :parse-fn #(Integer/parseInt %)]
+
+   ["-c" "--slave-critical N" "critical threshold fo mysql slave (seconds)"
+    :default 3600
+    :parse-fn #(Integer/parseInt %)]
+
+   ["-w" "--slave-warning N" "warning threshold fo mysql slave (seconds)"
+    :default 1200
     :parse-fn #(Integer/parseInt %)]
 
    ["-r" "--riemann-host HOST" "address for a riemanns server"
@@ -136,5 +148,7 @@
     (log/info "Starting riemann-mysql on" (:mysql-host options))
 
     (-check-loop {:host (:mysql-host options) :user (:mysql-user options)}
-                  (:interval options) (:riemann-host options))))
+                 (:interval options) (:riemann-host options)
+                 {:critical (:slave-critical options) :warning (:slave-warning options)}
+               )))
 
