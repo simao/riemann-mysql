@@ -76,26 +76,29 @@
      (try-alert-build a (assoc a :metric (count (iquery-fn)) :state "ok"))
      :critical critical :warning warning)))
 
-;; TODO: Maybe this function could just accept `db-opts', a `interval'
-;; riemann-host, and a list of already built functions that don't even
-;; receive any arguments but build event hashes that can be sent to riemann
-(defn -check-loop [db-opts interval riemann-host slave-thresholds]
+(defn start-check-loop [db-opts riemann-host interval check-fns]
   (let [mysql-props {:subprotocol "mysql"
                      :subname (str "//" (:host db-opts) ":3306/mysql")
                      :user (:user db-opts)
                      :password ""}
         rclient (riemann/tcp-client {:host riemann-host})]
     (j/with-db-connection [db-con mysql-props]
-      (loop [query-fn #(j/query db-con %1)
-            ttl (* 2 interval)]
+      (loop [query-fn #(j/query db-con %1)]
         (try
-          (log/info (send-riemann-alert rclient
-                                        (check-slave-status ttl query-fn slave-thresholds)))
-          (log/info (send-riemann-alert rclient
-                                        (check-conn-count ttl query-fn)))
+          (doseq [f check-fns]
+            (log/info (send-riemann-alert rclient (f query-fn))))
           (catch Throwable ex (log/error ex "Error: ")))
           (Thread/sleep (* interval 1000))
-          (recur query-fn ttl)))))
+          (recur query-fn)))))
+
+(defn build-check-fns [cli-options]
+  (let [slave-thresholds {:critical (:slave-critical cli-options)
+                          :warning (:slave-warning cli-options)}
+        conn-thresholds {:critical (:conn-count-critical cli-options)
+                         :warning (:conn-count-warning cli-options)}
+        ttl (* 2 (:interval cli-options))]
+    (list #(check-conn-count ttl %1 conn-thresholds)
+          #(check-slave-status ttl %1 slave-thresholds))))
 
 (def cli-options
   [["-m" "--mysql-host HOST" "mysql hostname to check"
@@ -117,7 +120,15 @@
     :default 1200
     :parse-fn #(Integer/parseInt %)]
 
-   ["-r" "--riemann-host HOST" "address for a riemanns server"
+   [nil "--conn-count-critical N" "critical threshold fo mysql connection count"
+    :default 1000
+    :parse-fn #(Integer/parseInt %)]
+
+   [nil "--conn-count-warning N" "warning threshold fo mysql connection count"
+    :default 800
+    :parse-fn #(Integer/parseInt %)]
+
+   ["-r" "--riemann-host HOST" "address for a riemann server"
     :default "localhost"]
 
    ["-h" "--help"]])
@@ -147,8 +158,8 @@
     
     (log/info "Starting riemann-mysql on" (:mysql-host options))
 
-    (-check-loop {:host (:mysql-host options) :user (:mysql-user options)}
-                 (:interval options) (:riemann-host options)
-                 {:critical (:slave-critical options) :warning (:slave-warning options)}
-               )))
+    (start-check-loop {:host (:mysql-host options) :user (:mysql-user options)}
+                 (:riemann-host options)
+                 (:interval options)
+                 (build-check-fns options))))
 
