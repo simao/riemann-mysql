@@ -37,22 +37,19 @@
        (assoc ~defaults :state "critical" 
               :description (str "ERROR: " (.getMessage e#))))))
 
-;; TODO:
-;; threshold and ttl can be abstracted to some form of event building
-
-(defn transform-state-for-threshold
-  [event & { :keys [critical warning] :or {critical 3600 warning 1200} }]
+(defn transform-state-with-threshold
+  [event & [{ :keys [critical warning]}]]
   (if (nil? (:metric event)) (assoc event :state (or (:state event) "warning"))
-      (assoc event :state (condp < (:metric event)
+      (assoc event :state (condp <= (:metric event)
                              critical "critical"
                              warning "warning"
                              "ok"))))
 
 (defn check-slave-status
   "Returns an event representing the current mysql slave status"
-  ([ttl query-fn & [{ :keys [critical warning] :or {critical 3600 warning 1200} }]]
+  ([query-fn]
    (let [iquery-fn #(query-fn "show slave status /* riemann-mysql */")
-         a {:service "mysql_slave_delay" :ttl ttl :description nil :metric nil}]
+         a {:service "mysql_slave_delay" :description nil :metric nil}]
     (try-alert-build a
                (let [result (first (iquery-fn))
                      seconds (:seconds_behind_master result)
@@ -61,20 +58,16 @@
                                    (str "delay: " (seconds-to-duration-str seconds)))
                      running_state (when (not (nil? state)) (str "running_state: " state))
                      ]
-                 (transform-state-for-threshold
-                  (assoc a :metric seconds
-                         :description (string/join ", " [running_state delay-str]))
-                  :critical critical :warning warning))))))
+                 (assoc a :metric seconds
+                         :description (string/join ", " [running_state delay-str])))))))
 
 (defn check-conn-count
-  [ttl query-fn & [{ :keys [critical warning] :or {critical 1000 warning 900} }]]
+  [query-fn]
   "Get current connection status from db and return an event hash
   representing the current state"
   (let [iquery-fn #(query-fn "show processlist; /* riemann-mysql */")
-        a {:service "mysql_conn_count" :ttl ttl :description nil :metric nil}]
-    (transform-state-for-threshold
-     (try-alert-build a (assoc a :metric (count (iquery-fn)) :state "ok"))
-     :critical critical :warning warning)))
+        a {:service "mysql_conn_count" :description nil :metric nil}]
+    (try-alert-build a (assoc a :metric (count (iquery-fn)) :state "ok"))))
 
 (defn start-check-loop [db-opts riemann-host interval check-fns]
   (let [mysql-props {:subprotocol "mysql"
@@ -91,14 +84,17 @@
           (Thread/sleep (* interval 1000))
           (recur query-fn)))))
 
+(defn run-check-fn [f ttl query-fn thresholds]
+  (merge {:ttl ttl} (transform-state-with-threshold (f query-fn) thresholds)))
+
 (defn build-check-fns [cli-options]
   (let [slave-thresholds {:critical (:slave-critical cli-options)
                           :warning (:slave-warning cli-options)}
         conn-thresholds {:critical (:conn-count-critical cli-options)
                          :warning (:conn-count-warning cli-options)}
         ttl (* 2 (:interval cli-options))]
-    (list #(check-conn-count ttl %1 conn-thresholds)
-          #(check-slave-status ttl %1 slave-thresholds))))
+    (list #(run-check-fn check-conn-count ttl %1 conn-thresholds)
+          #(run-check-fn check-slave-status ttl %1 slave-thresholds))))
 
 (def cli-options
   [["-m" "--mysql-host HOST" "mysql hostname to check"
