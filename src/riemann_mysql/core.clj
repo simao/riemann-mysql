@@ -10,56 +10,56 @@
 (defn seconds-to-duration-str [seconds]
   (if (or (nil? seconds) (= 0 seconds))
     "0 seconds"
-  (let [floor (comp int #(Math/floor %))
-        s (mod seconds 60)
+    (let [floor (comp int #(Math/floor %))
+          s (mod seconds 60)
 
-        mf (floor (/ seconds 60))
-        m (mod mf 60)
+          mf (floor (/ seconds 60))
+          m (mod mf 60)
 
-        hf (floor (/ mf 60))
-        h (mod hf 24)
+          hf (floor (/ mf 60))
+          h (mod hf 24)
 
-        d (floor (/ hf 60))]
-    (->> [["day" d] ["hour" h] ["minute" m] ["second" s]]
-         (drop-while (comp zero? last))
-         (map (fn [[w v]] (str v " " w (if (= v 1) "" "s"))))
-         (string/join ", ")))))
+          d (floor (/ hf 60))]
+      (->> [["day" d] ["hour" h] ["minute" m] ["second" s]]
+           (drop-while (comp zero? last))
+           (map (fn [[w v]] (str v " " w (if (= v 1) "" "s"))))
+           (string/join ", ")))))
 
 (defn send-riemann-alert [client event]
   "Receives an `event' hash and sends it to riemann using `client'"
   (let [e (update-in event [:tags] (fnil conj []) "riemann-mysql")]
-  (riemann/send-event client e) e))
+    (riemann/send-event client e) e))
 
 (defmacro try-alert-build [defaults exp]
   `(try
      ~exp
      (catch Throwable e#
-       (assoc ~defaults :state "critical" 
+       (assoc ~defaults :state "critical"
               :description (str "ERROR: " (.getMessage e#))))))
 
 (defn transform-state-with-threshold
   [event & [{ :keys [critical warning]}]]
   (if (nil? (:metric event)) (assoc event :state (or (:state event) "warning"))
       (assoc event :state (condp <= (:metric event)
-                             critical "critical"
-                             warning "warning"
-                             "ok"))))
+                            critical "critical"
+                            warning "warning"
+                            "ok"))))
 
 (defn check-slave-status
   "Returns an event representing the current mysql slave status"
   ([query-fn]
    (let [iquery-fn #(query-fn "show slave status /* riemann-mysql */")
          a {:service "mysql_slave_delay" :description nil :metric nil}]
-    (try-alert-build a
-               (let [result (first (iquery-fn))
-                     seconds (:seconds_behind_master result)
-                     state (:slave_sql_running_state result)
-                     delay-str (if (nil? seconds) ""
-                                   (str "delay: " (seconds-to-duration-str seconds)))
-                     running_state (when (not (nil? state)) (str "running_state: " state))
-                     ]
-                 (assoc a :metric seconds
-                         :description (string/join ", " [running_state delay-str])))))))
+     (try-alert-build a
+                      (let [result (first (iquery-fn))
+                            seconds (:seconds_behind_master result)
+                            state (:slave_sql_running_state result)
+                            delay-str (if (nil? seconds) ""
+                                          (str "delay: " (seconds-to-duration-str seconds)))
+                            running_state (when (not (nil? state)) (str "running_state: " state))
+                            ]
+                        (assoc a :metric seconds
+                               :description (string/join ", " [running_state delay-str])))))))
 
 (defn check-conn-count
   [query-fn]
@@ -81,20 +81,27 @@
           (doseq [f check-fns]
             (log/info (send-riemann-alert rclient (f query-fn))))
           (catch Throwable ex (log/error ex "Error: ")))
-          (Thread/sleep (* interval 1000))
-          (recur query-fn)))))
+        (Thread/sleep (* interval 1000))
+        (recur query-fn)))))
 
-(defn run-check-fn [f ttl query-fn thresholds]
-  (merge {:ttl ttl} (transform-state-with-threshold (f query-fn) thresholds)))
+;; TODO: tags not optional
+(defn run-check-fn
+  [f ttl query-fn thresholds & [tags]]
+  (update-in
+   (merge {:ttl ttl}
+          (transform-state-with-threshold (f query-fn) thresholds))
+   [:tags]
+   (fnil #(vec (concat tags %1)) [])))
 
 (defn build-check-fns [cli-options]
   (let [slave-thresholds {:critical (:slave-critical cli-options)
                           :warning (:slave-warning cli-options)}
         conn-thresholds {:critical (:conn-count-critical cli-options)
                          :warning (:conn-count-warning cli-options)}
+        tags (:tags cli-options)
         ttl (* 2 (:interval cli-options))]
-    (list #(run-check-fn check-conn-count ttl %1 conn-thresholds)
-          #(run-check-fn check-slave-status ttl %1 slave-thresholds))))
+    (list #(run-check-fn check-conn-count ttl %1 conn-thresholds tags)
+          #(run-check-fn check-slave-status ttl %1 slave-thresholds tags))))
 
 (def cli-options
   [["-m" "--mysql-host HOST" "mysql hostname to check"
@@ -103,6 +110,12 @@
 
    [nil "--mysql-user USER" "mysql username to use"
     :default "root"]
+
+   ["-t" "--tag TAG" "Tags to add to events sent to riemann. Can be specified multiple times"
+    :id :tags
+    :default []
+    :assoc-fn (fn [opt id tag] (update-in opt [id] (fnil conj []) tag))
+    ]
 
    ["-i" "--interval INTERVAL" "interval to pause between checks (seconds)"
     :default 5
@@ -151,11 +164,10 @@
     (cond
      (:help options) (exit 0 (usage summary))
      errors (exit 1 (error-msg errors)))
-    
+
     (log/info "Starting riemann-mysql on" (:mysql-host options))
 
     (start-check-loop {:host (:mysql-host options) :user (:mysql-user options)}
-                 (:riemann-host options)
-                 (:interval options)
-                 (build-check-fns options))))
-
+                      (:riemann-host options)
+                      (:interval options)
+                      (build-check-fns options))))

@@ -73,7 +73,14 @@
     (let [result (parse-opts ["-m" "localhost" "-i" "30"] cli-options)
           options (:options result)]
       (is (= 30 (:interval options)))
+      (is (= [] (:tags options)))
       (is (= "localhost/127.0.0.1" (str (:mysql-host options)))))))
+
+(deftest accepts-multiple-tags-test
+  (testing "cli accepts tags"
+      (let [result (parse-opts ["-t" "tag0" "--tag" "tag1"] cli-options)
+            options (:options result)]
+        (is (= ["tag0", "tag1"] (:tags options))))))
 
 (deftest run-check-fn-critical-test
   (testing "adjusts state when connection count is too high"
@@ -97,4 +104,9 @@
   (testing "ttl should be passed on in the generated event"
     (let [result (run-check-fn check-conn-count 22 (fn [_] (vec [{} {} {}])) {:critical 10 :warning 10})]
       (is (= 22 (:ttl result))))))
+
+(deftest run-check-fn-tags-test
+  (testing "tags should be added to the resulting event"
+    (let [result (run-check-fn (fn [_] {:tags ["event-tag"]}) 22 #() {:critical 10 :warning 10} ["tag0" "tag1"])]
+      (is (= ["tag0" "tag1" "event-tag"] (:tags result))))))
 
