@@ -1,5 +1,7 @@
 (ns riemann-mysql.core
-  (:require [clojure.java.jdbc :as j]
+  (:require [riemann-mysql.run_checks :as run_checks]
+            [riemann-mysql.checks :as checks]
+            [clojure.java.jdbc :as j]
             [clojure.string :as string]
             [riemann.client :as riemann]
             [clojure.tools.logging :as log]
@@ -7,67 +9,10 @@
   (:import (java.net InetAddress))
   (:gen-class))
 
-(defn seconds-to-duration-str [seconds]
-  (if (or (nil? seconds) (= 0 seconds))
-    "0 seconds"
-    (let [floor (comp int #(Math/floor %))
-          s (mod seconds 60)
-
-          mf (floor (/ seconds 60))
-          m (mod mf 60)
-
-          hf (floor (/ mf 60))
-          h (mod hf 24)
-
-          d (floor (/ hf 60))]
-      (->> [["day" d] ["hour" h] ["minute" m] ["second" s]]
-           (drop-while (comp zero? last))
-           (map (fn [[w v]] (str v " " w (if (= v 1) "" "s"))))
-           (string/join ", ")))))
-
 (defn send-riemann-alert [client event]
   "Receives an `event' hash and sends it to riemann using `client'"
   (let [e (update-in event [:tags] (fnil conj []) "riemann-mysql")]
     (riemann/send-event client e) e))
-
-(defmacro try-alert-build [defaults exp]
-  `(try
-     ~exp
-     (catch Throwable e#
-       (assoc ~defaults :state "critical"
-              :description (str "ERROR: " (.getMessage e#))))))
-
-(defn transform-state-with-threshold
-  [event & [{ :keys [critical warning]}]]
-  (if (nil? (:metric event)) (assoc event :state (or (:state event) "warning"))
-      (assoc event :state (condp <= (:metric event)
-                            critical "critical"
-                            warning "warning"
-                            "ok"))))
-
-(defn check-slave-status
-  "Returns an event representing the current mysql slave status"
-  ([query-fn]
-   (let [iquery-fn #(query-fn "show slave status /* riemann-mysql */")
-         a {:service "mysql_slave_delay" :description nil :metric nil}]
-     (try-alert-build a
-                      (let [result (first (iquery-fn))
-                            seconds (:seconds_behind_master result)
-                            state (:slave_sql_running_state result)
-                            delay-str (if (nil? seconds) ""
-                                          (str "delay: " (seconds-to-duration-str seconds)))
-                            running_state (when (not (nil? state)) (str "running_state: " state))
-                            ]
-                        (assoc a :metric seconds
-                               :description (string/join ", " [running_state delay-str])))))))
-
-(defn check-conn-count
-  [query-fn]
-  "Get current connection status from db and return an event hash
-  representing the current state"
-  (let [iquery-fn #(query-fn "show processlist; /* riemann-mysql */")
-        a {:service "mysql_conn_count" :description nil :metric nil}]
-    (try-alert-build a (assoc a :metric (count (iquery-fn)) :state "ok"))))
 
 (defn start-check-loop [db-opts riemann-host interval check-fns]
   (let [mysql-props {:subprotocol "mysql"
@@ -84,15 +29,6 @@
         (Thread/sleep (* interval 1000))
         (recur query-fn)))))
 
-;; TODO: tags not optional
-(defn run-check-fn
-  [f ttl query-fn thresholds & [tags]]
-  (update-in
-   (merge {:ttl ttl}
-          (transform-state-with-threshold (f query-fn) thresholds))
-   [:tags]
-   (fnil #(vec (concat tags %1)) [])))
-
 (defn build-check-fns [cli-options]
   (let [slave-thresholds {:critical (:slave-critical cli-options)
                           :warning (:slave-warning cli-options)}
@@ -100,8 +36,8 @@
                          :warning (:conn-count-warning cli-options)}
         tags (:tags cli-options)
         ttl (* 2 (:interval cli-options))]
-    (list #(run-check-fn check-conn-count ttl %1 conn-thresholds tags)
-          #(run-check-fn check-slave-status ttl %1 slave-thresholds tags))))
+    (list #(run_checks/run-check-fn checks/check-conn-count ttl %1 conn-thresholds tags)
+          #(run_checks/run-check-fn checks/check-slave-status ttl %1 slave-thresholds tags))))
 
 (def cli-options
   [["-m" "--mysql-host HOST" "mysql hostname to check"
