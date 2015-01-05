@@ -12,8 +12,9 @@
 ;; TODO: tags not optional
 (defn run-check-fn
   [f ttl query-fn thresholds & [tags]]
-  (update-in
-   (merge {:ttl ttl}
-          (transform-state-with-threshold (f query-fn) thresholds))
-   [:tags]
-   (fnil #(vec (concat tags %1)) [])))
+  (let [defaults {:critical (Integer/MAX_VALUE) :warning (Integer/MAX_VALUE)}]
+    (update-in
+     (merge {:ttl ttl}
+            (transform-state-with-threshold (f query-fn) (merge defaults thresholds)))
+     [:tags]
+     (fnil #(vec (concat tags %1)) []))))

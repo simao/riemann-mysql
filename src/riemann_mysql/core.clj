@@ -37,6 +37,7 @@
         tags (:tags cli-options)
         ttl (* 2 (:interval cli-options))]
     (list #(run_checks/run-check-fn checks/check-conn-count ttl %1 conn-thresholds tags)
+          #(run_checks/run-check-fn checks/check-aborted-connects ttl %1 {} tags)
           #(run_checks/run-check-fn checks/check-slave-status ttl %1 slave-thresholds tags))))
 
 (def cli-options
@@ -47,7 +48,7 @@
    [nil "--mysql-user USER" "mysql username to use"
     :default "root"]
 
-   ["-t" "--tag TAG" "Tags to add to events sent to riemann. Can be specified multiple times"
+   ["-t" "--tag TAG" "Tags to add to events sent to riemann. Can be used multiple times"
     :id :tags
     :default []
     :assoc-fn (fn [opt id tag] (update-in opt [id] (fnil conj []) tag))

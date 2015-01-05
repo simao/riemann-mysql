@@ -24,10 +24,11 @@ Use `--help` to get more info on supported arguments
 
 ## Features
 
-Currently only two metrics are collected from mysql:
+Currently only a few metrics are collected from mysql:
 
 * Connection count
 * Slave status, including running state and seconds behind master
+* `aborted_connects` count
 
 More metrics are planned, but not yet available
 

@@ -40,3 +40,8 @@
   (testing "tags should be added to the resulting event"
     (let [result (run-check-fn (fn [_] {:tags ["event-tag"]}) 22 #() {:critical 10 :warning 10} ["tag0" "tag1"])]
       (is (= ["tag0" "tag1" "event-tag"] (:tags result))))))
+
+(deftest run-check-fn-defaults-thresholds-test
+  (testing "uses default thresholds if empty hash given"
+    (let [result (run-check-fn (fn [_] {:metric 1000}) 22 #() {} [])]
+      (is (= "ok" (:state result))))))

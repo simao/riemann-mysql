@@ -32,3 +32,13 @@
   (let [iquery-fn #(query-fn "show processlist; /* riemann-mysql */")
         a {:service "mysql_conn_count" :description nil :metric nil}]
     (try-alert-build a (assoc a :metric (count (iquery-fn)) :state "ok"))))
+
+(defn check-aborted-connects
+  ([query-fn]
+   (let [iquery-fn #(query-fn "SHOW GLOBAL STATUS LIKE 'aborted_connects' /* riemann-mysql */")
+         a {:service "mysql_aborted_connects" :description nil :metric nil}]
+     (try-alert-build a
+                      (let [result (first (iquery-fn))
+                            aborted_count (Integer/parseInt (:value result))
+                            ]
+                        (assoc a :metric aborted_count))))))
