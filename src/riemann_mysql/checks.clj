@@ -27,12 +27,11 @@
 
 (defn check-conn-count
   [query-fn]
-  "Get current connection status from db and return an event hash
-  representing the current state"
   (let [iquery-fn #(query-fn "show processlist; /* riemann-mysql */")
         a {:service "mysql_conn_count" :description nil :metric nil}]
     (try-alert-build a (assoc a :metric (count (iquery-fn)) :state "ok"))))
 
+;; TODO: These wtwo could be merged?
 (defn check-aborted-connects
   ([query-fn]
    (let [iquery-fn #(query-fn "SHOW GLOBAL STATUS LIKE 'aborted_connects' /* riemann-mysql */")
@@ -42,3 +41,13 @@
                             aborted_count (Integer/parseInt (:value result))
                             ]
                         (assoc a :metric aborted_count))))))
+
+(defn check-max-used-connections
+  ([query-fn]
+   (let [iquery-fn #(query-fn "SHOW GLOBAL STATUS LIKE 'max_used_connections' /* riemann-mysql */")
+         a {:service "mysql_max_used_connections" :description nil :metric nil}]
+     (try-alert-build a
+                      (let [result (first (iquery-fn))
+                            value (Integer/parseInt (:value result))
+                            ]
+                        (assoc a :metric value))))))

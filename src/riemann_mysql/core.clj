@@ -38,6 +38,7 @@
         ttl (* 2 (:interval cli-options))]
     (list #(run_checks/run-check-fn checks/check-conn-count ttl %1 conn-thresholds tags)
           #(run_checks/run-check-fn checks/check-aborted-connects ttl %1 {} tags)
+          #(run_checks/run-check-fn checks/check-max-used-connections ttl %1 {} tags)
           #(run_checks/run-check-fn checks/check-slave-status ttl %1 slave-thresholds tags))))
 
 (def cli-options
