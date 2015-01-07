@@ -56,11 +56,8 @@
       (is (= "critical" (:state result)))
       (is (= nil (:metric result))))))
 
-
 (deftest check-max-used-connections-test
   (testing "returns number of used connections as metric"
     (let [result (check-max-used-connections (fn [_] (vec [{:value "20"}])))]
       (is (= "mysql_max_used_connections" (:service result)))
       (is (= 20 (:metric result))))))
-
-;; TODO: test parseint fails
