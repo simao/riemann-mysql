@@ -32,11 +32,11 @@
 (defn build-check-fns [cli-options]
   (let [slave-thresholds {:critical (:slave-critical cli-options)
                           :warning (:slave-warning cli-options)}
-        conn-thresholds {:critical (:conn-count-critical cli-options)
-                         :warning (:conn-count-warning cli-options)}
+        proc-thresholds {:critical (:proc-count-critical cli-options)
+                         :warning (:proc-count-warning cli-options)}
         tags (:tags cli-options)
         ttl (* 2 (:interval cli-options))]
-    (list #(run_checks/run-check-fn checks/check-conn-count ttl %1 conn-thresholds tags)
+    (list #(run_checks/run-check-fn checks/check-proc-count ttl %1 proc-thresholds tags)
           #(run_checks/run-check-fn checks/check-aborted-connects ttl %1 {} tags)
           #(run_checks/run-check-fn checks/check-max-used-connections ttl %1 {} tags)
           #(run_checks/run-check-fn checks/check-slave-status ttl %1 slave-thresholds tags))))
@@ -67,11 +67,11 @@
     :default 1200
     :parse-fn #(Integer/parseInt %)]
 
-   [nil "--conn-count-critical N" "critical threshold fo mysql connection count"
+   [nil "--proc-count-critical N" "critical threshold fo mysql process count"
     :default 1000
     :parse-fn #(Integer/parseInt %)]
 
-   [nil "--conn-count-warning N" "warning threshold fo mysql connection count"
+   [nil "--proc-count-warning N" "warning threshold fo mysql process count"
     :default 800
     :parse-fn #(Integer/parseInt %)]
 

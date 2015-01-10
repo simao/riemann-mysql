@@ -28,14 +28,14 @@
       (is (re-find #"1 minute" (:description result)))
       )))
 
-(deftest check-conn-count-error-test
+(deftest check-proc-count-error-test
   (testing "returns an error event if an error occurs"
-    (let [result (check-conn-count nil)]
+    (let [result (check-proc-count nil)]
       (is (nil? (:metric result))))))
 
-(deftest check-conn-count-success-test
+(deftest check-proc-count-success-test
   (testing "returns number of connections as metric"
-    (let [result (check-conn-count (fn [_] (vec [{} {} {}])))]
+    (let [result (check-proc-count (fn [_] (vec [{} {} {}])))]
       (is (= 3 (:metric result))))))
 
 (deftest check-aborted-connects-test

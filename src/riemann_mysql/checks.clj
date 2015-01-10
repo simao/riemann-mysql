@@ -33,10 +33,10 @@
                         (assoc a :metric seconds
                                :description (string/join ", " [running_state delay-str])))))))
 
-(defn check-conn-count
+(defn check-proc-count
   [query-fn]
   (let [iquery-fn #(query-fn "show processlist; /* riemann-mysql */")
-        a {:service "mysql_conn_count" :description nil :metric nil}]
+        a {:service "mysql_proc_count" :description nil :metric nil}]
     (try-alert-build a (assoc a :metric (count (iquery-fn)) :state "ok"))))
 
 (defn check-aborted-connects
