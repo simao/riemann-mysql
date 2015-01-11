@@ -72,7 +72,7 @@
     :parse-fn #(Integer/parseInt %)]
 
    [nil "--proc-count-warning N" "warning threshold fo mysql process count"
-    :default 800
+    :default 300
     :parse-fn #(Integer/parseInt %)]
 
    ["-r" "--riemann-host HOST" "address for a riemann server"
